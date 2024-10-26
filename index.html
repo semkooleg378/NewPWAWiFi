@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLE Device Manager</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#317EFB">
+</head>
+<body>
+    <h1>BLE Device Manager</h1>
+    
+    <!-- Scan Button to search for BLE devices -->
+    <button id="scan-button">Scan for Devices</button>
+    
+    <!-- Status for BLE connection -->
+    <p id="connection-status">Disconnected</p>
+    
+    <!-- Form for selecting WiFi network and entering password -->
+    <form id="wifi-form">
+        <label for="networkList">WiFi devices list:</label><br>
+        <select id="networkList" name="ssid" required>
+            <option value="" disabled selected>empty...</option>
+        </select><br><br>
+        
+        <label for="password">Password:</label><br>
+        <input type="password" id="password" name="password" placeholder="Enter WiFi Password" required><br><br>
+        
+        <input type="submit" value="Connect">
+    </form>
+    
+    <script src="app.js"></script>
+    <script>
+        // Register service worker for PWA functionality
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./service-worker.js')
+                .then(reg => console.log('Service Worker registered:', reg))
+                .catch(err => console.error('Service Worker registration failed:', err));
+        }
+    </script>
+</body>
+</html>

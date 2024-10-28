@@ -1,6 +1,33 @@
-// app.ts
 const SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
 const PUBLIC_CHAR_UUID = '00001234-0000-1000-8000-00805f9b34fb';
+
+// Manage the installation prompt
+let deferredPrompt: any;
+const addBtn = document.createElement('button');
+addBtn.textContent = 'Install App';
+addBtn.style.display = 'none';
+document.body.appendChild(addBtn);
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    addBtn.style.display = 'block';
+
+    addBtn.addEventListener('click', (e) => {
+        addBtn.style.display = 'none';
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then((choiceResult: any) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the A2HS prompt');
+            } else {
+                console.log('User dismissed the A2HS prompt');
+            }
+            deferredPrompt = null;
+        });
+    });
+});
+///////////////////////
+
 
 interface MessageBase {
     type: string;
@@ -8,6 +35,16 @@ interface MessageBase {
     destinationAddress: string;
     requestUUID: string;
 }
+
+interface AccessOnOff extends MessageBase {
+    list: { [mac: string]: boolean };
+}
+
+interface AccessOnOFFSingle extends MessageBase {
+    pair: { [mac: string]: boolean };
+}
+
+interface GetDeviceList extends MessageBase {}
 
 interface ResOk extends MessageBase {
     status: boolean;
@@ -25,11 +62,16 @@ interface LoginWWiFi extends MessageBase {
     pass: string;
 }
 
-let bleDevice: BluetoothDevice | null = null;
-let uniqueCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+
+const scanButton = document.getElementById('scan-button')!;
+const deviceList = document.getElementById('device-list')!;
+const controlList = document.getElementById('control-list')!;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const cmpUUD = (a: string, b: string) => a.replace(/[^a-zA-Z0-9 ]/g, "") === b.replace(/[^a-zA-Z0-9 ]/g, "");
+
+let bleDevice: BluetoothDevice | null = null;
+let uniqueCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
 
 document.getElementById("scan-button")?.addEventListener("click", async () => {
     try {
@@ -41,6 +83,33 @@ document.getElementById("scan-button")?.addEventListener("click", async () => {
         console.error("BLE Scan failed:", error);
     }
 });
+
+
+/*scanButton.addEventListener('click', async () => {
+    if (!navigator.bluetooth) {
+        console.error('Web Bluetooth API is not available in this browser.');
+        return;
+    }
+
+    try {
+        const device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [SERVICE_UUID] }],
+            optionalServices: [SERVICE_UUID]
+        });
+
+        displayDeviceList(device);
+    } catch (error) {
+        console.error('Error:', error);
+    }
+})*/;
+
+function displayDeviceList(device: BluetoothDevice) {
+    deviceList.innerHTML = '';
+    const listItem = document.createElement('li');
+    listItem.textContent = device.name || device.id;
+    listItem.addEventListener('click', () => connectToDevice(device));
+    deviceList.appendChild(listItem);
+}
 
 async function connectToDevice(device: BluetoothDevice) {
     let retryCount = 0;
@@ -107,8 +176,7 @@ async function connectToDevice(device: BluetoothDevice) {
                     requestUUID: 'M1'
                 };
                 //await 
-                //sendMessage(uniqueCharacteristic, getMacList);
-                sendScanWiFiMessage();
+                sendMessage(uniqueCharacteristic, getMacList);
             }
 
             connected = true;
@@ -124,91 +192,137 @@ async function connectToDevice(device: BluetoothDevice) {
     }
 }
 
-/*async function connectToDevice(device: BluetoothDevice) {
-    try {
-        console.log('Connecting to device:', device);
-        const server = await device.gatt?.connect();
-        if (!server) throw new Error('Unable to connect to GATT server');
+let destAdr = '';
+let srcAdr = '';
+let receivedData = '';
 
-        const services = await server.getPrimaryServices();
-        let publicService = services.find(service => service.uuid === SERVICE_UUID);
-        if (!publicService) throw new Error('Public service not found');
-
-        const characteristics = await publicService.getCharacteristics();
-        let publicCharacteristic = characteristics.find(char => char.uuid === PUBLIC_CHAR_UUID);
-        if (!publicCharacteristic) throw new Error('Public characteristic not found');
-
-            console.log('Found public characteristic:', publicCharacteristic);
-
-            const value = await publicCharacteristic.readValue();
-            const decoder = new TextDecoder('utf-8');
-            const data = decoder.decode(value);
-
-            console.log('Public characteristic value:', data);
-
-            uniqueCharacteristic = characteristics.find(char => cmpUUD(char.uuid, data));
-            if (uniqueCharacteristic) {
-                uniqueCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-                await uniqueCharacteristic.startNotifications();
-	        console.log('Found unique characteristic');
-            }
-	    else
-	    {
-		throw new Error ('Unique characteristic not found');
-	    }
-
-        //uniqueCharacteristic = publicCharacteristic;
-        //uniqueCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-        //await uniqueCharacteristic.startNotifications();
-
-        sendScanWiFiMessage();
-    } catch (error) {
-        console.error("Error during connection:", error);
-    }
-}
-*/
-async function sendMessage(characteristic: BluetoothRemoteGATTCharacteristic, message: MessageBase) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(JSON.stringify(message));
-    await characteristic.writeValue(data);
-}
+let isResCheckBox = false;
+let chkOn = false;
 
 function sendScanWiFiMessage() {
     if (uniqueCharacteristic) {
         const scanMessage: ScanWiFiMessage = {
             type: "ScanWiFi",
-            sourceAddress: "00:00:00:00:00:00",
-            destinationAddress: bleDevice?.name || "unknown",
-            requestUUID: "M1"
+            sourceAddress: destAdr, //"00:00:00:00:00:00",
+            destinationAddress: srcAdr,//bleDevice?.name || "unknown",
+            requestUUID: "M3"
         };
         sendMessage(uniqueCharacteristic, scanMessage);
     }
 }
 
-let receivedData = '';
+let needScanWiFi = false;
+
 function handleNotifications(event: Event) {
-    const target = event.target as BluetoothRemoteGATTCharacteristic;
-    const decoder = new TextDecoder("utf-8");
-    const value = decoder.decode(target.value);
-    
-    receivedData += value;
+    const characteristic = event.target as BluetoothRemoteGATTCharacteristic;
+    const value = characteristic.value;
+    const decoder = new TextDecoder('utf-8');
+    const data = decoder.decode(value!);
+
+    receivedData += data;
     console.log('handleNotifications');
     console.log(receivedData);
 
     try {
-	    const response = JSON.parse(receivedData);
-	    receivedData = ''; // Reset buffer
-	    if (response.type === "ScanWiFiResult") {
-		updateNetworkList(response.list);
-	    } else if (response.type === "ResOk") {
-		showConnectionStatus(response.status);
+	chkOn = true;
+        //const message: AccessOnOff = JSON.parse(receivedData);
+        const message = JSON.parse(receivedData);
+        if (message.type === 'AccessOnOff') {
+            displayControlList(message.list);
+            receivedData = ''; // Reset buffer
+	    console.log('on of parsed');
+	    destAdr = message.sourceAddress;
+	    srcAdr = message.destinationAddress;
+	    console.log (message);
+	    needScanWiFi = true;
+	    //sendScanWiFiMessage ();
+        } else if (message.type === "ScanWiFiResult") {
+            receivedData = ''; // Reset buffer
+	    updateNetworkList(message.list);
+	} else if (message.type === "ResOk") {
+            receivedData = ''; // Reset buffer
+	    if (isResCheckBox)
+	    {
+		isResCheckBox = false;
+		showConnectionStatus(message.status);
 	    }
+	}
+	else
+	            receivedData = ''; // Reset buffer
+
     } catch (e) {
         // Not a complete JSON message yet
 	    console.log('on of parse error!');
     }
-	    
 }
+
+function displayControlList(devices: { [mac: string]: boolean }) {
+    controlList.innerHTML = '';
+    for (const [mac, isEnabled] of Object.entries(devices)) {
+        const listItem = document.createElement('li');
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = isEnabled;
+        checkbox.addEventListener('change', () => handleCheckboxChange(mac, checkbox.checked));
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(mac));
+        listItem.appendChild(label);
+        controlList.appendChild(listItem);
+    }
+}
+
+async function handleCheckboxChange(mac: string, isEnabled: boolean) {
+    if (!uniqueCharacteristic) return;
+
+    const message: AccessOnOFFSingle = {
+        type: 'AccessOnOFFSingle',
+        sourceAddress: srcAdr,
+        destinationAddress: destAdr,////mac,
+        requestUUID: 'M2',
+        pair: { [mac]: isEnabled }
+    };
+    isResCheckBox = true;
+    await sendMessage(uniqueCharacteristic, message);
+}
+
+async function sendMessage(characteristic: any, message: MessageBase) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(JSON.stringify(message));
+    chkOn = false;
+
+    const maxChunkSize = 160;
+    for (let i = 0; i < data.length; i += maxChunkSize) {
+        const chunk = data.slice(i, i + maxChunkSize);
+        await characteristic.writeValue(chunk);
+        await wait(10);
+    }
+}
+
+function showConnectionStatus(isConnected: boolean) {
+    const statusElement = document.getElementById("connection-status") as HTMLParagraphElement;
+    statusElement.textContent = isConnected ? "Connected" : "Disconnected";
+}
+
+document.querySelector("form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const ssid = (document.getElementById("networkList") as HTMLSelectElement).value;
+    const password = (document.getElementById("password") as HTMLInputElement).value;
+
+    if (ssid && password && uniqueCharacteristic) {
+        const loginMessage: LoginWiFiMessage = {
+            type: "LoginWWiFi",
+        sourceAddress: srcAdr,
+        destinationAddress: destAdr,////mac,
+            //sourceAddress: "00:00:00:00:00:00",
+            //destinationAddress: bleDevice?.name || "unknown",
+            requestUUID: "M1",
+            ssid: ssid,
+            pass: password
+        };
+        await sendMessage(uniqueCharacteristic, loginMessage);
+    }
+});
 
 function updateNetworkList(networks: { [ssid: string]: boolean }) {
     const networkList = document.getElementById("networkList") as HTMLSelectElement;
@@ -229,26 +343,26 @@ function updateNetworkList(networks: { [ssid: string]: boolean }) {
         networkList.appendChild(option);
     }*/
 }
-
-function showConnectionStatus(isConnected: boolean) {
-    const statusElement = document.getElementById("connection-status") as HTMLParagraphElement;
-    statusElement.textContent = isConnected ? "Connected" : "Disconnected";
+///////
+async function checkConnect ()
+{
+	if ( needScanWiFi )
+	{
+	    sendScanWiFiMessage ();
+	    needScanWiFi = false;
+	}
+	else if (chkOn)
+	{
+		const loginMessage: LoginWiFiMessage = {
+		    type: "GetWiFiStatus",
+		sourceAddress: srcAdr,
+		destinationAddress: destAdr,////mac,
+		    requestUUID: "M4",
+		};
+		await sendMessage(uniqueCharacteristic, loginMessage);
+        }
 }
 
-document.querySelector("form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const ssid = (document.getElementById("networkList") as HTMLSelectElement).value;
-    const password = (document.getElementById("password") as HTMLInputElement).value;
+setInterval(checkConnect,5000);
 
-    if (ssid && password && uniqueCharacteristic) {
-        const loginMessage: LoginWiFiMessage = {
-            type: "LoginWWiFi",
-            sourceAddress: "00:00:00:00:00:00",
-            destinationAddress: bleDevice?.name || "unknown",
-            requestUUID: "M1",
-            ssid: ssid,
-            pass: password
-        };
-        await sendMessage(uniqueCharacteristic, loginMessage);
-    }
-});
+

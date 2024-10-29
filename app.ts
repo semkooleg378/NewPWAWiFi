@@ -62,6 +62,7 @@ interface LoginWWiFi extends MessageBase {
     pass: string;
 }
 
+interface GetWiFiStatus extends MessageBase {}
 
 const scanButton = document.getElementById('scan-button')!;
 const deviceList = document.getElementById('device-list')!;
@@ -70,8 +71,8 @@ const controlList = document.getElementById('control-list')!;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const cmpUUD = (a: string, b: string) => a.replace(/[^a-zA-Z0-9 ]/g, "") === b.replace(/[^a-zA-Z0-9 ]/g, "");
 
-let bleDevice: BluetoothDevice | null = null;
-let uniqueCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+let bleDevice : BluetoothDevice | null | undefined  = null;
+let uniqueCharacteristic : BluetoothRemoteGATTCharacteristic | null | undefined  = null;
 
 document.getElementById("scan-button")?.addEventListener("click", async () => {
     try {
@@ -172,7 +173,7 @@ async function connectToDevice(device: BluetoothDevice) {
                 const getMacList: GetDeviceList = {
                     type: 'GetDeviceList',
                     sourceAddress: '00:00:00:00:00:00',
-                    destinationAddress: device.name,//id,
+                    destinationAddress: "BleLock",//device.name,//id,
                     requestUUID: 'M1'
                 };
                 //await 
@@ -201,7 +202,7 @@ let chkOn = false;
 
 function sendScanWiFiMessage() {
     if (uniqueCharacteristic) {
-        const scanMessage: ScanWiFiMessage = {
+        const scanMessage: ScanWiFi = {
             type: "ScanWiFi",
             sourceAddress: destAdr, //"00:00:00:00:00:00",
             destinationAddress: srcAdr,//bleDevice?.name || "unknown",
@@ -310,7 +311,7 @@ document.querySelector("form")?.addEventListener("submit", async (event) => {
     const password = (document.getElementById("password") as HTMLInputElement).value;
 
     if (ssid && password && uniqueCharacteristic) {
-        const loginMessage: LoginWiFiMessage = {
+        const loginMessage: LoginWWiFi = {
             type: "LoginWWiFi",
         sourceAddress: srcAdr,
         destinationAddress: destAdr,////mac,
@@ -353,7 +354,7 @@ async function checkConnect ()
 	}
 	else if (chkOn)
 	{
-		const loginMessage: LoginWiFiMessage = {
+		const loginMessage: GetWiFiStatus = {
 		    type: "GetWiFiStatus",
 		sourceAddress: srcAdr,
 		destinationAddress: destAdr,////mac,
